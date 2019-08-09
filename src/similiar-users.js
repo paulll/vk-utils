@@ -3,10 +3,7 @@ const fs = require('fs').promises;
 const redis = require('redis');
 const path = require('path');
 const {API} = require('@paulll/vklib');
-
-const settings = {
-	threshold: 250000
-};
+const config = require('../config');
 
 Object.defineProperty(Array.prototype, 'chunk', {
 	value: function(chunkSize) {
@@ -19,7 +16,7 @@ Object.defineProperty(Array.prototype, 'chunk', {
 
 
 Promise.promisifyAll(redis);
-const client = redis.createClient(16379);
+const client = redis.createClient(config.redis.port);
 
 const scan = async (patt, chunk_handler) => {
 	let cursor = '0';
@@ -46,8 +43,8 @@ const getGroups = async (id) => {
 
 (async () => {
 	const api = new API({
-		access_token: 'e05fbb5fd24fdd18d4f67506e2f85ba565b4a7a54277efed63a76d191a35e3c5f8065d7a9929cf21e9823',
-		service_token: '590b7e5b590b7e5b590b7e5bea596a14f85590b590b7e5b039be32ce7e754aab89565f1'
+		access_token: config.access_token,
+		service_token: config.service_token
 	});
 
 
@@ -57,7 +54,13 @@ const getGroups = async (id) => {
 	let groups = [];
 	if (!counters.hasOwnProperty('groups')) {
 		console.log('Реверсный поиск групп.. пару минут');
-		groups = new Set(await getGroups(user.id));
+		const groups_s = new Set(await getGroups(user.id));
+
+		// объединяем с пабликами
+		const publics = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
+		const publicsById = new Map(publics.map(x => ([x.id, x.name])));
+		const publicsList = publics.map(x => x.id);
+		groups = Array.from(new Set([...groups_s, ...publicsList])).map(x => ({id: x, name: publicsList.get(x) || `id${x}` }));
 	} else {
 		groups = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
 	}
@@ -72,14 +75,14 @@ const getGroups = async (id) => {
 				.count;
 
 			let members = [];
-			if (size < settings.threshold) {
+			if (size < config["similiar-users"]["group-size-threshold"]) {
 				try {
 					members = await api.fetch('groups.getMembers',
-						{v: 5.92, group_id: group.id, count: 1000}, {limit: settings.threshold});
+						{v: 5.92, group_id: group.id, count: 1000}, {limit: config["similiar-users"]["group-size-threshold"]});
 					await client.saddAsync(`sim:gr:${group.id}`, members);
 				} catch (e) {}
 			}
-			console.log(`[${++counter}/${groups.length}] Получена группа ${group.name}, участников: ${size >= settings.threshold ? 'много': members.length }`);
+			console.log(`[${++counter}/${groups.length}] Получена группа ${group.name}, участников: ${size >= config["similiar-users"]["group-size-threshold"] ? 'много': members.length }`);
 		} catch (e) {
 			console.log(`[${++counter}/${groups.length}] Не получена группа ${group.name}: ошибка доступа`);
 		}

@@ -4,18 +4,15 @@ const {API} = require('@paulll/vklib');
 const savedGroups = new Map(require('../data/groups.json') || []);
 const redis = require('redis');
 const path = require('path');
+const config = require('../config');
 
 Promise.promisifyAll(redis);
-const client = redis.createClient(16379);
-
-const settings = {
-	threshold: 150000
-};
+const client = redis.createClient(config.redis.port);
 
 (async () => {
 	const api = new API({
-		access_token: '44c28c57316dc3839d67bb535772a1807227d57d94a64e6685ab1c1dae574db31a1a72a25f886e0b6f748',
-		service_token: '590b7e5b590b7e5b590b7e5bea596a14f85590b590b7e5b039be32ce7e754aab89565f1'
+		access_token: config.access_token,
+		service_token: config.service_token
 	});
 
 	const tags = (await fs.readFile(path.join(__dirname, '../data/tags.txt'), {encoding: 'utf8'}))
@@ -37,13 +34,13 @@ const settings = {
 			.count;
 
 		let members = [];
-		if (size < settings.threshold) {
+		if (size < config["groups-to-members"]["group-size-threshold"]) {
 			members = await api.fetch('groups.getMembers',
-				{v: 5.92, group_id: group.id, count: 1000}, {limit: 250000});
+				{v: 5.92, group_id: group.id, count: 1000}, {limit: config["groups-to-members"]["group-size-threshold"]});
 			await client.saddAsync(`sim:gr:${group.id}`, members);
 		}
 
-		console.log(`[${counter}/${allGroups.length}] Получена группа ${group.name}, участников: ${size >= settings.threshold ? 'много': members.length }`);
+		console.log(`[${counter}/${allGroups.length}] Получена группа ${group.name}, участников: ${size >= config["groups-to-members"]["group-size-threshold"] ? 'много': members.length }`);
 	};
 
 	for (let i = 0 ; i < 20; ++i) {

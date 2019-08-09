@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const {API} = require('@paulll/vklib');
 const path = require('path');
+const config = require('../config');
 
 let savedGroups;
 try {
@@ -11,8 +12,8 @@ try {
 
 (async () => {
 	const api = new API({
-		access_token: 'e05fbb5fd24fdd18d4f67506e2f85ba565b4a7a54277efed63a76d191a35e3c5f8065d7a9929cf21e9823',
-		service_token: '590b7e5b590b7e5b590b7e5bea596a14f85590b590b7e5b039be32ce7e754aab89565f1'
+		access_token: config.access_token,
+		service_token: config.service_token
 	});
 
 	const tags = (await fs.readFile(path.join(__dirname, '../data/tags.txt'), {encoding: 'utf8'}))
@@ -24,7 +25,7 @@ try {
 
 	let counter = 0;
 	for (const tag of tags) {
-		const groups = (await api.enqueue('groups.search', {v: 5.92, q: tag, count: 1000},
+		const groups = (await api.enqueue('groups.search', {v: 5.92, q: tag, count: config["tags-to-groups"]["max-groups-per-tag"]},
 			{force_private: true})).items || [];
 		if (savedGroups.has(tag))
 			savedGroups.set(tag, [...new Set([...savedGroups.get(tag), ...groups])]);

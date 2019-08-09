@@ -4,11 +4,11 @@ const savedGroups = new Map(require('../data/groups.json') || []);
 const redis = require('redis');
 const path = require('path');
 const crypto = require('crypto');
-const once = (ee, e) => new Promise(f => ee.once(e, f));
+const config = require('../config');
 
 Promise.promisifyAll(redis);
-const client = redis.createClient(16379);
-const sumAmountWeight = (n) => ((1 - Math.pow(0.5, n))/(1-0.5));
+const client = redis.createClient(config.redis.port);
+const sumAmountWeight = (n) => ((1 - Math.pow(config["amounts-to-weights"].k, n))/(1-config["amounts-to-weights"].k));
 
 Object.defineProperty(Array.prototype, 'chunk', {
 	value: function(chunkSize) {
@@ -18,7 +18,6 @@ Object.defineProperty(Array.prototype, 'chunk', {
 		return R;
 	}
 });
-
 
 const scan = async (key, chunk_handler) => {
 	let cursor = '0';

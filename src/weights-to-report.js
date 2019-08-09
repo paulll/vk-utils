@@ -6,6 +6,8 @@ const path = require('path');
 const {API} = require('@paulll/vklib');
 const crypto = require('crypto');
 const pug = require('pug');
+const config = require('../config');
+
 
 const tpl = pug.compileFile(__dirname + '/report/template.pug');
 
@@ -27,7 +29,7 @@ const fields = [
 ].join(',');
 
 Promise.promisifyAll(redis);
-const client = redis.createClient(16379);
+const client = redis.createClient(config.redis.port);
 
 const scan = async (patt, chunk_handler) => {
 	let cursor = '0';
@@ -54,8 +56,8 @@ const getGroups = async (id) => {
 
 (async () => {
 	const api = new API({
-		access_token: 'e05fbb5fd24fdd18d4f67506e2f85ba565b4a7a54277efed63a76d191a35e3c5f8065d7a9929cf21e9823',
-		service_token: '590b7e5b590b7e5b590b7e5bea596a14f85590b590b7e5b039be32ce7e754aab89565f1'
+		access_token: config.access_token,
+		service_token: config.service_token
 	});
 
 	const sections = (await fs.readFile(path.join(__dirname, '../data/tags.txt'), {encoding: 'utf8'}))

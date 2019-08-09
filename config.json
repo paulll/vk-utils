@@ -1,0 +1,19 @@
+{
+  "redis": {
+    "port": 16379
+  },
+  "similiar-users": {
+    "group-size-threshold": 250000
+  },
+  "groups-to-members": {
+    "group-size-threshold": 250000
+  },
+  "tags-to-groups": {
+    "max-groups-per-tag": 1000
+  },
+  "amounts-to-weights": {
+    "k": 0.5
+  },
+  "access_token": "",
+  "service_token": "590b7e5b590b7e5b590b7e5bea596a14f85590b590b7e5b039be32ce7e754aab89565f1"
+}

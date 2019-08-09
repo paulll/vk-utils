@@ -4,9 +4,10 @@ const savedGroups = new Map(require('../data/groups.json') || []);
 const redis = require('redis');
 const path = require('path');
 const crypto = require('crypto');
+const config = require('../config');
 
 Promise.promisifyAll(redis);
-const client = redis.createClient(16379);
+const client = redis.createClient(config.redis.port);
 
 Object.defineProperty(Array.prototype, 'chunk', {
 	value: function(chunkSize) {

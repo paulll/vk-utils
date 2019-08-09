@@ -17,5 +17,6 @@
     "bluebird": "latest",
     "pug": "^2.0.4",
     "redis": "^2.8.0",
+    "redis": "latest"
   }
 }
