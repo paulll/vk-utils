@@ -1,0 +1,59 @@
+html,
+body {
+  margin: 0;
+  font-family: "DejaVu Sans Mono", monospace;
+}
+.user {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid #808080;
+}
+.user .name {
+  margin: 10px;
+}
+.user .name a:nth-child(2) {
+  opacity: 1;
+  margin-left: 10px;
+}
+.user .name a:first-child {
+  font-weight: bold;
+  text-decoration: none;
+  color: #000;
+}
+.user .avatar {
+  width: 280px;
+  height: 280px;
+  background-size: contain;
+  margin: 10px;
+  border: 2px #808080 solid;
+}
+.user .activity {
+  margin: 10px;
+  margin-top: 0;
+  font-size: 90%;
+}
+.user .activity .seen {
+  opacity: 0.7;
+}
+.user .wrap .wrap {
+  margin: 10px;
+  font-size: 90%;
+}
+.user .wrap .wrap .sections {
+  height: 200px;
+  overflow: overlay;
+}
+.user .wrap .wrap .sections a {
+  display: block;
+}
+.h,
+.v {
+  display: flex;
+}
+.h {
+  flex-direction: column;
+}
+canvas {
+  width: 300px;
+  height: 300px;
+}
