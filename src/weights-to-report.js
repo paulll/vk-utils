@@ -78,7 +78,7 @@ const getGroups = async (id) => {
 
 
 	console.log('[info] Получаем топ-100к');
-	const top = await client.zrevrangebyscoreAsync('tans3', '+inf', '-inf', 'LIMIT', 0, 100000);
+	const top = await client.zrevrangebyscoreAsync('tans', '+inf', '-inf', 'LIMIT', 0, 100000);
 	//const top = [];
 
 	let c = 0;
@@ -89,31 +89,20 @@ const getGroups = async (id) => {
 
 		const part = await api.enqueue('users.get', {user_ids: chunk.join(','), fields, v:5.92});
 
-		/**
-		 * Фильтры:
-		 *  - тян
-		 *  - открытая не заблокированная
-		 *  - если указан город, то мск
-		 *  - в активном поиске
-		 *  - 1997 - 2003 г.р
-		 */
-
 		for (let user of part) {
-			if (user.sex !== 1) continue;
+			if (user.sex !== 1) continue; // 1 - женский
 			if (user.deactivated) continue;
 			if (user.is_closed) continue;
-			if (user.country && user.country.id !== 1) continue;
-			if (user.city && user.city !== 1) continue;
-			if (user.first_name.toLowerCase().includes('para')
-				|| user.last_name.toLowerCase().includes('para')
-				|| user.activity && user.activity.toLowerCase().includes('пара')
-				|| user.activity && user.activity.toLowerCase().includes('парни не пишите')
+			if (user.country && user.country.id !== 1) continue; // 1 - россия
+			if (user.city && user.city !== 1) continue; // 1 - москва
+			if (user.activity && user.activity.toLowerCase().includes('парни не пишите')
 				|| user.activity && user.activity.toLowerCase().includes('парни, не пишите')
 				|| user.activity && user.activity.toLowerCase().includes('я парень')) continue;
 
+			// если указана дата рождения, то 1997 - 2002
 			if (user.bdate && +user.bdate.split('.').pop() > 1000 && +user.bdate.split('.').pop() < 1997) continue;
-			if (user.bdate && +user.bdate.split('.').pop() > 2003 ) continue;
-			if (user.relation !== 0 && user.relation !== 1 && user.relation !== 6 ) continue; // в активном поиске либо не указано либо
+			if (user.bdate && +user.bdate.split('.').pop() > 2002 ) continue;
+			if (user.relation !== 0 && user.relation !== 1 && user.relation !== 6 ) continue; // не указано, не замужем или в активном поиске
 
 			// todo: выяснять дату рождения отдельно
 			// todo: учесть крупные группы

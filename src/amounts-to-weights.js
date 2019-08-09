@@ -54,7 +54,7 @@ const scan = async (key, chunk_handler) => {
 
 	console.time('Всего времени');
 	console.log('[info] Поиск кандидатов');
-	await client.delAsync('tans3');
+	await client.delAsync('tans');
 
 	for (const section of sections) {
 		console.log(`[info] Обработка секции: ${section.name}`);
@@ -68,7 +68,7 @@ const scan = async (key, chunk_handler) => {
 			for (let [k, v] of chunk.entries()) {
 				if (++cnt % 20000 === 0)
 					console.log(`[progress] Запись ${cnt}`);
-				promises.push(client.zincrbyAsync('tans3', v ? Math.floor(134217728 * section.weight * sumAmountWeight(v )) : 0, k));
+				promises.push(client.zincrbyAsync('tans', v ? Math.floor(134217728 * section.weight * sumAmountWeight(v )) : 0, k));
 			}
 			await Promise.all(promises);
 		});
