@@ -4,6 +4,7 @@ const redis = require('redis');
 const path = require('path');
 const {API} = require('@paulll/vklib');
 const config = require('../config');
+const createGraph = require('ngraph.graph');
 
 Object.defineProperty(Array.prototype, 'chunk', {
 	value: function(chunkSize) {
@@ -47,6 +48,11 @@ const getGroups = async (id) => {
 		service_token: config.service_token
 	});
 
+	const apiForcePublic = new API({
+		access_token: false,
+		service_token: config.service_token
+	});
+
 
 	const user = (await api.enqueue('users.get', {user_ids: process.argv.pop(),v: 5.92,  fields: 'counters,sex'}, {force_private: true}))[0];
 	const counters = user.counters;
@@ -60,7 +66,7 @@ const getGroups = async (id) => {
 		const publics = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
 		const publicsById = new Map(publics.map(x => ([x.id, x.name])));
 		const publicsList = publics.map(x => x.id);
-		groups = Array.from(new Set([...groups_s, ...publicsList])).map(x => ({id: x, name: publicsList.get(x) || `id${x}` }));
+		groups = Array.from(new Set([...groups_s, ...publicsList])).map(x => ({id: x, name: publicsById.get(x) || `id${x}` }));
 	} else {
 		groups = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
 	}
@@ -114,7 +120,6 @@ const getGroups = async (id) => {
 		// чем больше людей в группе, тем меньше её вес
 
 		const members = await client.smembersAsync(`sim:gr:${group}`);
-		console.log('analysis', group);
 		for (let uid of members) {
 			const oldValue = usersMap.get(+uid) || 0;
 			const oldPValue = usersMapP.get(+uid) || 0;
@@ -123,14 +128,48 @@ const getGroups = async (id) => {
 		}
 	}
 
-	const members = Array.from(usersMap).sort((a,b) => b[1] > a[1]? 1:-1).slice(0,100);
-	console.log('Получаем имена');
-	const udata = await api.enqueue('users.get', {v:5.92, fields:'sex', user_ids: members.map(x=>x[0]).join(',')});
+	const candidates_by_groups = Array.from(usersMap).sort((a,b) => b[1] > a[1]? 1:-1).slice(0,100);
 
+	console.log('Представляем граф друзей');
+
+	const g = createGraph();
+	const sourceFriends = await api.fetch('friends.get', {user_id: user.id, v:5.92}, {limit: 5000});
+	let total_friends_amount_1 = 0, total_friends_amount_2 = 0;
+	await Promise.map(new Set([...candidates_by_groups.map(x=>x[0]), ...sourceFriends]), async (key) => {
+		const friends = (await apiForcePublic.fetch('friends.get', {user_id: key, v:5.92}, {limit: 5000})) || [];
+		total_friends_amount_1++;
+		total_friends_amount_2 += friends.length;
+		for (const friend of friends)
+			g.addLink(key, friend);
+	});
+
+
+	console.log('Анализ графа...');
+	const friends_k = total_friends_amount_2 / total_friends_amount_1 / 4;
+	const usersMapF = new Map;
+	const usersMapFr = new Map;
+
+	g.forEachLinkedNode(user.id, (friendOfTarget) => {
+		g.forEachLinkedNode(friendOfTarget.id, (fof) => {
+			usersMapF.set(+fof.id, (usersMapF.get(+fof.id)||0) + 1);
+			usersMapFr.set(+fof.id, (usersMapF.get(+fof.id)||0) + 1/Math.sqrt(fof.links.length/friends_k));
+		});
+	});
+
+
+	console.log('Пересортировка..');
+	const members = candidates_by_groups.map(([key,value]) => {
+		const intersections = usersMapFr.get(+key)||0;
+		return [key, value + intersections];  //(intersections? 15 + 4*Math.sqrt(intersections) : 0)
+	}).sort((a,b) => b[1] > a[1]? 1:-1);
+
+
+	console.log('Получаем имена..');
+	const udata = await api.enqueue('users.get', {v:5.92, fields:'sex', user_ids: members.map(x=>x[0]).join(',')});
 	console.log(members);
 
 	for (let u of udata)
-		console.log(`${u.first_name} ${u.last_name} ${u.sex===1?'ж':'м'} :: ${usersMap.get(u.id)}/${usersMapP.get(u.id)} :: id= ${u.id}`);
+		console.log(`${u.first_name} ${u.last_name} ${u.sex===1?'ж':'м'} :: ${usersMap.get(u.id)}/${usersMapP.get(u.id)}/${usersMapF.get(u.id)||0} :: id= ${u.id}`);
 
 	process.exit(0);
 })();

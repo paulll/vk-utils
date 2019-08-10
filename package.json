@@ -15,8 +15,8 @@
   "dependencies": {
     "@paulll/vklib": "^2.0.2",
     "bluebird": "latest",
+    "ngraph.graph": "^18.0.1",
     "pug": "^2.0.4",
-    "redis": "^2.8.0",
-    "redis": "latest"
+    "redis": "^2.8.0"
   }
 }
