@@ -1,46 +1,14 @@
 const Promise = require('bluebird');
-const fs = require('fs').promises;
 const redis = require('redis');
-const path = require('path');
 const {API} = require('@paulll/vklib');
 const config = require('../config');
 const createGraph = require('ngraph.graph');
 
-Object.defineProperty(Array.prototype, 'chunk', {
-	value: function(chunkSize) {
-		const R = [];
-		for (let i = 0; i < this.length; i += chunkSize)
-			R.push(this.slice(i, i + chunkSize));
-		return R;
-	}
-});
-
-
 Promise.promisifyAll(redis);
 const client = redis.createClient(config.redis.port);
+const {getGroups} = require('./common/reverse-groups')(client);
 
-const scan = async (patt, chunk_handler) => {
-	let cursor = '0';
-	do {
-		let resp = await client.scanAsync(cursor, 'MATCH', patt);
-		cursor = resp[0];
-		await chunk_handler(resp[1]);
-	} while (cursor !== '0');
-};
-
-
-const getGroups = async (id) => {
-	const result = [];
-	await scan(`sim:gr:*`, async (groups) => {
-		for (const gr of groups) {
-			const joined = await client.sismemberAsync(gr, id);
-			if (joined)
-				result.push(+gr.slice(7));
-		}
-	});
-	return result;
-};
-
+require('./common/error-handler');
 
 (async () => {
 	const api = new API({
@@ -53,59 +21,42 @@ const getGroups = async (id) => {
 		service_token: config.service_token
 	});
 
+	const fetchGroupMembers = require('./common/fetch-group-members')(api, client);
 
-	const user = (await api.enqueue('users.get', {user_ids: process.argv.pop(),v: 5.92,  fields: 'counters,sex'}, {force_private: true}))[0];
-	const counters = user.counters;
+	//
+	// Базовые данные о пользователе
+	//
+	const {counters, ...user} = (await api.enqueue('users.get', {user_ids: process.argv.pop(), v: 5.92, lang: 0, fields: 'counters,sex'}, {force_private: true}))[0];
+	const publics = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
 
-	let groups = [];
+	//
+	// Список групп реверсно
+	//
+	let groups = publics;
 	if (!counters.hasOwnProperty('groups')) {
 		console.log('Реверсный поиск групп.. пару минут');
 		const groups_s = new Set(await getGroups(user.id));
 
 		// объединяем с пабликами
-		const publics = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
+
 		const publicsById = new Map(publics.map(x => ([x.id, x.name])));
 		const publicsList = publics.map(x => x.id);
-		groups = Array.from(new Set([...groups_s, ...publicsList])).map(x => ({id: x, name: publicsById.get(x) || `id${x}` }));
-	} else {
-		groups = await api.fetch('groups.get', {user_id: user.id, extended: 1, v: 5.92, count: 1000}, {force_private: true, silent: false});
+		groups = Array.from(new Set([...groups_s, ...publicsList]))
+			.map(x => ({id: x, name: publicsById.get(x) || `id${x}` }));
 	}
 
+	//
+	// Участники групп
+	//
 	console.log('Группы определены.. Загрузка участников');
-	let counter = 0;
-	const proc = async (group) => {
-		if (await client.existsAsync(`sim:gr:${group.id}`)) return ++counter;
-
-		try {
-			const size = (await api.enqueue('groups.getMembers', {v: 5.92, group_id: group.id, count: 1000}))
-				.count;
-
-			let members = [];
-			if (size < config["similiar-users"]["group-size-threshold"]) {
-				try {
-					members = await api.fetch('groups.getMembers',
-						{v: 5.92, group_id: group.id, count: 1000}, {limit: config["similiar-users"]["group-size-threshold"]});
-					await client.saddAsync(`sim:gr:${group.id}`, members);
-				} catch (e) {}
-			}
-			console.log(`[${++counter}/${groups.length}] Получена группа ${group.name}, участников: ${size >= config["similiar-users"]["group-size-threshold"] ? 'много': members.length }`);
-		} catch (e) {
-			console.log(`[${++counter}/${groups.length}] Не получена группа ${group.name}: ошибка доступа`);
-		}
-	};
-
 	const items = groups.map ( x=>x.id);
+	await fetchGroupMembers(groups, config["similiar-users"]["group-size-threshold"]);
 
-	await Promise.all(Array(20).fill(0).map(async() => {
-		while (groups.length)
-			await proc(groups.pop());
-	}));
-
-	console.log('Участники получены..');
-
-	const usersMap = new Map;
-	const usersMapP = new Map;
-
+	//
+	// Анализ участников групп
+	//
+	const sum_group_weight_map = new Map;
+	const group_intersections_count_map = new Map;
 
 	// Calc Average
 	let total_group_size = 0;
@@ -120,22 +71,24 @@ const getGroups = async (id) => {
 		// чем больше людей в группе, тем меньше её вес
 
 		const members = await client.smembersAsync(`sim:gr:${group}`);
-		for (let uid of members) {
-			const oldValue = usersMap.get(+uid) || 0;
-			const oldPValue = usersMapP.get(+uid) || 0;
-			usersMap.set(+uid, oldValue + 1 + 1/Math.sqrt(members.length/k));
-			usersMapP.set(+uid, oldPValue + 1);
+		for (let member_id of members) {
+			const old_group_weight = sum_group_weight_map.get(+member_id) || 0;
+			const old_group_ic = group_intersections_count_map.get(+member_id) || 0;
+			sum_group_weight_map.set(+member_id, old_group_weight + 1 + 1/Math.sqrt(members.length/k));
+			group_intersections_count_map.set(+member_id, old_group_ic + 1);
 		}
 	}
 
-	const candidates_by_groups = Array.from(usersMap).sort((a,b) => b[1] > a[1]? 1:-1).slice(0,100);
+	const candidates_by_groups = Array.from(sum_group_weight_map).sort((a,b) => b[1] > a[1]? 1:-1).slice(0,100);
 
-	console.log('Представляем граф друзей');
-
+	//
+	// Анализ графа друзей
+	//
+	console.log('Загружаем граф друзей');
 	const g = createGraph();
-	const sourceFriends = await api.fetch('friends.get', {user_id: user.id, v:5.92}, {limit: 5000});
+	const source_friends = await api.fetch('friends.get', {user_id: user.id, v:5.92}, {limit: 5000});
 	let total_friends_amount_1 = 0, total_friends_amount_2 = 0;
-	await Promise.map(new Set([...candidates_by_groups.map(x=>x[0]), ...sourceFriends]), async (key) => {
+	await Promise.map(new Set([...candidates_by_groups.map(x=>x[0]), ...source_friends]), async (key) => {
 		const friends = (await apiForcePublic.fetch('friends.get', {user_id: key, v:5.92}, {limit: 5000})) || [];
 		total_friends_amount_1++;
 		total_friends_amount_2 += friends.length;
@@ -143,43 +96,39 @@ const getGroups = async (id) => {
 			g.addLink(key, friend);
 	});
 
-
-	console.log('Анализ графа...');
+	console.log('Анализ графа друзей...');
 	const friends_k = total_friends_amount_2 / total_friends_amount_1 / 4;
-	const usersMapF = new Map;
-	const usersMapFr = new Map;
+	const friend_intersections_amount_map = new Map;
+	const sum_friend_weight_map = new Map;
 
-	g.forEachLinkedNode(user.id, (friendOfTarget) => {
-		g.forEachLinkedNode(friendOfTarget.id, (fof) => {
-			usersMapF.set(+fof.id, (usersMapF.get(+fof.id)||0) + 1);
-			usersMapFr.set(+fof.id, (usersMapF.get(+fof.id)||0) + 1/Math.sqrt(fof.links.length/friends_k));
+	g.forEachLinkedNode(user.id, (friend_of_target) => {
+		g.forEachLinkedNode(friend_of_target.id, (fof) => {
+			friend_intersections_amount_map.set(+fof.id, (friend_intersections_amount_map.get(+fof.id)||0) + 1);
+			sum_friend_weight_map.set(+fof.id, (friend_intersections_amount_map.get(+fof.id)||0) + 1/Math.sqrt(fof.links.length/friends_k));
 		});
 	});
 
-
 	console.log('Пересортировка..');
 	const members = candidates_by_groups.map(([key,value]) => {
-		const intersections = usersMapFr.get(+key)||0;
+		const intersections = sum_friend_weight_map.get(+key)||0;
 		return [key, value + intersections];  //(intersections? 15 + 4*Math.sqrt(intersections) : 0)
 	}).sort((a,b) => b[1] > a[1]? 1:-1);
 
-
+	//
+	// Вывод
+	//
 	console.log('Получаем имена..');
-	const udata = await api.enqueue('users.get', {v:5.92, fields:'sex', user_ids: members.map(x=>x[0]).join(',')});
-	console.log(members);
+	const users_data = await api.enqueue('users.get', {v:5.92, fields:'sex', lang: 0, user_ids: members.map(x=>x[0]).join(',')});
+	const users_map_final = new Map(members);
 
-	for (let u of udata)
-		console.log(`${u.first_name} ${u.last_name} ${u.sex===1?'ж':'м'} :: ${usersMap.get(u.id)}/${usersMapP.get(u.id)}/${usersMapF.get(u.id)||0} :: id= ${u.id}`);
+	for (let u of users_data)
+		console.log(
+			`${u.first_name} ${u.last_name} ${u.sex===1?'ж':'м'}  :: ` +
+			`${users_map_final.get(u.id)}/${group_intersections_count_map.get(u.id)}/${friend_intersections_amount_map.get(u.id)||0} :: `+
+			`id= ${u.id}`
+		);
 
 	process.exit(0);
 })();
 
 
-process
-	.on('unhandledRejection', (reason, p) => {
-		console.error(reason, 'Unhandled Rejection at Promise', p);
-	})
-	.on('uncaughtException', err => {
-		console.error(err, 'Uncaught Exception thrown');
-		process.exit(1);
-	});
