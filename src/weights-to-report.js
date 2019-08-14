@@ -4,21 +4,13 @@ const savedGroups = new Map(require('../data/groups.json') || []);
 const redis = require('redis');
 const path = require('path');
 const {API} = require('@paulll/vklib');
-const crypto = require('crypto');
 const pug = require('pug');
 const config = require('../config');
 
-
 const tpl = pug.compileFile(__dirname + '/report/template.pug');
 
-Object.defineProperty(Array.prototype, 'chunk', {
-	value: function(chunkSize) {
-		const R = [];
-		for (let i = 0; i < this.length; i += chunkSize)
-			R.push(this.slice(i, i + chunkSize));
-		return R;
-	}
-});
+require('./common/array-chunk');
+require('./common/error-handler');
 
 const fields = [
 	"sex", "bdate", "city", "country", "photo_max", "photo_max_orig", "photo_50",
@@ -30,29 +22,7 @@ const fields = [
 
 Promise.promisifyAll(redis);
 const client = redis.createClient(config.redis.port);
-
-const scan = async (patt, chunk_handler) => {
-	let cursor = '0';
-	do {
-		let resp = await client.scanAsync(cursor, 'MATCH', patt);
-		cursor = resp[0];
-		await chunk_handler(resp[1]);
-	} while (cursor !== '0');
-};
-
-
-const getGroups = async (id) => {
-	const result = [];
-	await scan(`sim:gr:*`, async (groups) => {
-		for (const gr of groups) {
-			const joined = await client.sismemberAsync(gr, id);
-			if (joined)
-				result.push(+gr.slice(7));
-		}
-	});
-	return result;
-};
-
+const {getGroups} = require('./common/reverse-groups')(client);
 
 (async () => {
 	const api = new API({
@@ -173,13 +143,3 @@ const getGroups = async (id) => {
 	console.log('//end');
 
 })();
-
-
-process
-	.on('unhandledRejection', (reason, p) => {
-		console.error(reason, 'Unhandled Rejection at Promise', p);
-	})
-	.on('uncaughtException', err => {
-		console.error(err, 'Uncaught Exception thrown');
-		process.exit(1);
-	});
