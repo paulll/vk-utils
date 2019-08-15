@@ -22,6 +22,7 @@ require('./common/error-handler');
 	});
 
 	const fetchGroupMembers = require('./common/fetch-group-members')(api, client);
+	const fetchFriends = require('./common/friends')(api);
 
 	//
 	// Базовые данные о пользователе
@@ -85,28 +86,26 @@ require('./common/error-handler');
 	// Анализ графа друзей
 	//
 	console.log('Загружаем граф друзей');
-	const g = createGraph();
-	const source_friends = await api.fetch('friends.get', {user_id: user.id, v:5.92}, {limit: 5000});
-	let total_friends_amount_1 = 0, total_friends_amount_2 = 0;
-	await Promise.map(new Set([...candidates_by_groups.map(x=>x[0]), ...source_friends]), async (key) => {
-		const friends = (await apiForcePublic.fetch('friends.get', {user_id: key, v:5.92}, {limit: 5000})) || [];
-		total_friends_amount_1++;
-		total_friends_amount_2 += friends.length;
-		for (const friend of friends)
-			g.addLink(key, friend);
-	});
+	const g = await fetchFriends(user.id, {external_candidates: candidates_by_groups.map(x=>x[0]), heuristics: true, deep: false});
 
 	console.log('Анализ графа друзей...');
+	let total_friends_amount_1 = 0, total_friends_amount_2 = 0;
+	for (const node of g.nodes()) {
+		total_friends_amount_2 += node.links.length;
+		total_friends_amount_1++;
+	}
 	const friends_k = total_friends_amount_2 / total_friends_amount_1 / 4;
 	const friend_intersections_amount_map = new Map;
 	const sum_friend_weight_map = new Map;
 
-	g.forEachLinkedNode(user.id, (friend_of_target) => {
-		g.forEachLinkedNode(friend_of_target.id, (fof) => {
+	for (const link of g.getNode(+user.id).links) {
+		const friend_of_target = +link.from.id === +user.id ? link.to : link.from;
+		for (const link2 of friend_of_target.links) {
+			const fof = +link2.from.id === +friend_of_target.id ? link2.to : link2.from;
 			friend_intersections_amount_map.set(+fof.id, (friend_intersections_amount_map.get(+fof.id)||0) + 1);
 			sum_friend_weight_map.set(+fof.id, (friend_intersections_amount_map.get(+fof.id)||0) + 1/Math.sqrt(fof.links.length/friends_k));
-		});
-	});
+		}
+	}
 
 	console.log('Пересортировка..');
 	const members = candidates_by_groups.map(([key,value]) => {
