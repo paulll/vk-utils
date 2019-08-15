@@ -13,7 +13,7 @@
   "author": "paulll",
   "license": "MIT",
   "dependencies": {
-    "@paulll/vklib": "^2.0.2",
+    "@paulll/vklib": "^2.1.1",
     "bluebird": "latest",
     "ngraph.graph": "^18.0.1",
     "pug": "^2.0.4",
